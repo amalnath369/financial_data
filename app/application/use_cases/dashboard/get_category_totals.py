@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from app.domain.entities.user import User
 from app.domain.repositories.uow import AbstractUnitOfWork
+from app.core.cache_service import AbstractCacheService
 from app.application.use_cases.dashboard.dtos import DashboardFilterDTO, CategoryTotalDTO
 
 
@@ -21,10 +22,10 @@ class GetCategoryTotalsUseCase:
     def __init__(
         self,
         uow: AbstractUnitOfWork,
-        redis,
+        cache: AbstractCacheService,
     ) -> None:
         self._uow = uow
-        self._redis = redis
+        self._cache = cache
 
     async def execute(
         self,
@@ -32,7 +33,7 @@ class GetCategoryTotalsUseCase:
         actor: User,
     ) -> list[CategoryTotalDTO]:
         user_id = dto.user_id
-        if not actor.has_permission("users:read"):
+        if not actor.has_permission("records:read"):
             user_id = actor.id
 
         cache_key = self._cache_key(user_id, dto)
@@ -72,32 +73,24 @@ class GetCategoryTotalsUseCase:
         return f"dashboard:categories:{uid}:{date_from}:{date_to}"
 
     async def _get_cache(self, key: str) -> list[CategoryTotalDTO] | None:
-        try:
-            raw = await self._redis.get(key)
-            if raw:
-                items = json.loads(raw)
-                return [
-                    CategoryTotalDTO(
-                        **{**item, "total": Decimal(item["total"])}
-                    )
-                    for item in items
-                ]
-        except Exception:
-            pass
+        raw = await self._cache.get(key)
+        if raw:
+            items = json.loads(raw)
+            return [
+                CategoryTotalDTO(**{**item, "total": Decimal(item["total"])})
+                for item in items
+            ]
         return None
 
     async def _set_cache(self, key: str, result: list[CategoryTotalDTO]) -> None:
-        try:
-            data = [
-                {
-                    "category_id": r.category_id,
-                    "category_name": r.category_name,
-                    "record_type": r.record_type,
-                    "total": str(r.total),
-                    "count": r.count,
-                }
-                for r in result
-            ]
-            await self._redis.setex(key, self.CACHE_TTL, json.dumps(data))
-        except Exception:
-            pass
+        data = [
+            {
+                "category_id": r.category_id,
+                "category_name": r.category_name,
+                "record_type": r.record_type,
+                "total": str(r.total),
+                "count": r.count,
+            }
+            for r in result
+        ]
+        await self._cache.set(key, json.dumps(data), self.CACHE_TTL)

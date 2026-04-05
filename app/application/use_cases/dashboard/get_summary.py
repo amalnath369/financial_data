@@ -3,6 +3,7 @@ import json
 
 from app.domain.entities.user import User
 from app.domain.repositories.uow import AbstractUnitOfWork
+from app.core.cache_service import AbstractCacheService
 from app.application.use_cases.dashboard.dtos import DashboardFilterDTO, SummaryResponseDTO
 
 
@@ -22,10 +23,10 @@ class GetDashboardSummaryUseCase:
     def __init__(
         self,
         uow: AbstractUnitOfWork,
-        redis,
+        cache: AbstractCacheService,
     ) -> None:
         self._uow = uow
-        self._redis = redis
+        self._cache = cache
 
     async def execute(
         self,
@@ -34,7 +35,7 @@ class GetDashboardSummaryUseCase:
     ) -> SummaryResponseDTO:
         # viewers are always scoped to their own data
         user_id = dto.user_id
-        if not actor.has_permission("users:read"):
+        if not actor.has_permission("records:read"):
             user_id = actor.id
 
         cache_key = self._cache_key(user_id, dto)
@@ -71,27 +72,20 @@ class GetDashboardSummaryUseCase:
         return f"dashboard:summary:{uid}:{date_from}:{date_to}"
 
     async def _get_cache(self, key: str) -> dict | None:
-        try:
-            raw = await self._redis.get(key)
-            if raw:
-                data = json.loads(raw)
-                # convert Decimal-serialized strings back
-                from decimal import Decimal
-                for field in ("total_income", "total_expense", "net_balance"):
-                    data[field] = Decimal(data[field])
-                return data
-        except Exception:
-            pass  # Redis failure → degrade gracefully
+        raw = await self._cache.get(key)
+        if raw:
+            from decimal import Decimal
+            data = json.loads(raw)
+            for field in ("total_income", "total_expense", "net_balance"):
+                data[field] = Decimal(data[field])
+            return data
         return None
 
     async def _set_cache(self, key: str, result: SummaryResponseDTO) -> None:
-        try:
-            data = {
-                "total_income": str(result.total_income),
-                "total_expense": str(result.total_expense),
-                "net_balance": str(result.net_balance),
-                "total_records": result.total_records,
-            }
-            await self._redis.setex(key, self.CACHE_TTL, json.dumps(data))
-        except Exception:
-            pass  # Redis failure must never block response
+        data = {
+            "total_income": str(result.total_income),
+            "total_expense": str(result.total_expense),
+            "net_balance": str(result.net_balance),
+            "total_records": result.total_records,
+        }
+        await self._cache.set(key, json.dumps(data), self.CACHE_TTL)

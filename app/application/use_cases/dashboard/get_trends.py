@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from app.domain.entities.user import User
 from app.domain.repositories.uow import AbstractUnitOfWork
+from app.core.cache_service import AbstractCacheService
 from app.application.use_cases.dashboard.dtos import TrendsFilterDTO, TrendPointDTO
 
 
@@ -22,10 +23,10 @@ class GetTrendsUseCase:
     def __init__(
         self,
         uow: AbstractUnitOfWork,
-        redis,
+        cache: AbstractCacheService,
     ) -> None:
         self._uow = uow
-        self._redis = redis
+        self._cache = cache
 
     async def execute(
         self,
@@ -36,7 +37,7 @@ class GetTrendsUseCase:
             raise ValueError("Period must be 'monthly' or 'weekly'")
 
         user_id = dto.user_id
-        if not actor.has_permission("users:read"):
+        if not actor.has_permission("records:read"):
             user_id = actor.id
 
         cache_key = (
@@ -72,31 +73,23 @@ class GetTrendsUseCase:
         return result
 
     async def _get_cache(self, key: str) -> list[TrendPointDTO] | None:
-        try:
-            raw = await self._redis.get(key)
-            if raw:
-                items = json.loads(raw)
-                return [
-                    TrendPointDTO(
-                        **{**item, "total": Decimal(item["total"])}
-                    )
-                    for item in items
-                ]
-        except Exception:
-            pass
+        raw = await self._cache.get(key)
+        if raw:
+            items = json.loads(raw)
+            return [
+                TrendPointDTO(**{**item, "total": Decimal(item["total"])})
+                for item in items
+            ]
         return None
 
     async def _set_cache(self, key: str, result: list[TrendPointDTO]) -> None:
-        try:
-            data = [
-                {
-                    "period": r.period,
-                    "record_type": r.record_type,
-                    "total": str(r.total),
-                    "count": r.count,
-                }
-                for r in result
-            ]
-            await self._redis.setex(key, self.CACHE_TTL, json.dumps(data))
-        except Exception:
-            pass
+        data = [
+            {
+                "period": r.period,
+                "record_type": r.record_type,
+                "total": str(r.total),
+                "count": r.count,
+            }
+            for r in result
+        ]
+        await self._cache.set(key, json.dumps(data), self.CACHE_TTL)

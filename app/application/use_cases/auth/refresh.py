@@ -56,7 +56,7 @@ class RefreshTokenUseCase:
                 actor_roles=user.get_role_names(),
                 action=ActionType.AUTH_TOKEN_REFRESH,
                 resource="auth",
-                request_id=dto.ip_address,
+                request_id=dto.request_id,
                 ip_address=dto.ip_address,
                 user_agent=dto.user_agent,
             )

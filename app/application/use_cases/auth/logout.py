@@ -30,6 +30,7 @@ class LogoutUseCase:
     async def execute(
         self,
         dto: LogoutDTO,
+        request_id: str,
         ip_address: str,
         user_agent: str,
     ) -> None:
@@ -58,7 +59,7 @@ class LogoutUseCase:
                 actor_roles=actor_roles,
                 action=ActionType.AUTH_LOGOUT,
                 resource="auth",
-                request_id=ip_address,
+                request_id=request_id,
                 ip_address=ip_address,
                 user_agent=user_agent,
                 after={"token_revoked": True},

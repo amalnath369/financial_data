@@ -26,7 +26,7 @@ class GetRecentActivityUseCase:
         limit: int = 10,
     ) -> list[FinancialRecord]:
         user_id = dto.user_id
-        if not actor.has_permission("users:read"):
+        if not actor.has_permission("records:read"):
             user_id = actor.id
 
         async with self._uow as uow:

@@ -7,6 +7,7 @@ from app.domain.repositories.uow import AbstractUnitOfWork
 from app.domain.value_objects.money import Money
 from app.domain.enums.action_type import ActionType
 from app.application.use_cases.records.dtos import CreateRecordDTO
+from app.core.cache_service import AbstractCacheService
 
 
 class CreateRecordUseCase:
@@ -14,7 +15,7 @@ class CreateRecordUseCase:
     Create a new financial record.
     - Validates category exists and is active
     - Creates record using Money value object (validates amount)
-    - Invalidates dashboard Redis cache via event
+    - Invalidates dashboard cache after commit
     - Logs full after snapshot in audit
     - All atomic in one UoW transaction
     """
@@ -22,10 +23,10 @@ class CreateRecordUseCase:
     def __init__(
         self,
         uow: AbstractUnitOfWork,
-        redis,
+        cache: AbstractCacheService,
     ) -> None:
         self._uow = uow
-        self._redis = redis
+        self._cache = cache
 
     async def execute(
         self,
@@ -75,15 +76,8 @@ class CreateRecordUseCase:
         return record
 
     async def _invalidate_cache(self, user_id: str) -> None:
-        try:
-            keys = [
-                f"dashboard:summary:{user_id}",
-                f"dashboard:categories:{user_id}",
-                f"dashboard:trends:{user_id}",
-                "dashboard:summary:global",
-                "dashboard:categories:global",
-            ]
-            if keys:
-                await self._redis.delete(*keys)
-        except Exception:
-            pass  
+        user_keys = await self._cache.keys(f"dashboard:*:{user_id}:*")
+        global_keys = await self._cache.keys("dashboard:*:global:*")
+        all_keys = user_keys + global_keys
+        if all_keys:
+            await self._cache.delete(*all_keys)

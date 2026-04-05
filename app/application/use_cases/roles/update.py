@@ -5,10 +5,7 @@ from app.domain.entities.role import Role
 from app.domain.entities.audit import AuditLog
 from app.domain.repositories.uow import AbstractUnitOfWork
 from app.domain.enums.action_type import ActionType
-from app.application.use_cases.roles.dtos import UpdateRoleDTO
-
-# Protected system roles that cannot be renamed or deactivated
-SYSTEM_ROLES = {"admin", "analyst", "viewer"}
+from app.application.use_cases.roles.dtos import UpdateRoleDTO, SYSTEM_ROLES
 
 
 class UpdateRoleUseCase:

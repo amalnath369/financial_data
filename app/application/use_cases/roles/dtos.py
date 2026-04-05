@@ -2,6 +2,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import uuid
 
+# Protected system roles that cannot be renamed, deactivated, or deleted
+SYSTEM_ROLES: frozenset[str] = frozenset({"admin", "analyst", "viewer"})
+
 
 @dataclass
 class CreateRoleDTO:

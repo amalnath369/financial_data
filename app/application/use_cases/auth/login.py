@@ -5,6 +5,7 @@ from app.domain.repositories.uow import AbstractUnitOfWork
 from app.domain.value_objects.email import Email
 from app.domain.enums.action_type import ActionType
 from app.core.token_service import AbstractTokenService
+from app.core.cache_service import AbstractCacheService
 from app.application.use_cases.auth.dtos import LoginDTO, TokenDTO
 
 
@@ -12,7 +13,7 @@ class LoginUseCase:
     """
     Authenticate a user and issue JWT tokens.
 
-    - Brute force protection via Redis (5 attempts / 15 min window)
+    - Brute force protection via cache (5 attempts / 15 min window)
     - Verifies email + password via domain value objects only
     - Token issuance + refresh token storage delegated to TokenService
     - TokenService handles all infrastructure concerns internally
@@ -27,11 +28,11 @@ class LoginUseCase:
         self,
         uow: AbstractUnitOfWork,
         token_service: AbstractTokenService,
-        redis,
+        cache: AbstractCacheService,
     ) -> None:
         self._uow = uow
         self._token_service = token_service
-        self._redis = redis
+        self._cache = cache
 
     async def execute(self, dto: LoginDTO) -> TokenDTO:
         lock_key = f"login_attempts:{dto.email}"
@@ -70,10 +71,7 @@ class LoginUseCase:
                 raise ValueError("Invalid credentials")
 
             # 5. clear brute force counter on success
-            try:
-                await self._redis.delete(lock_key)
-            except Exception:
-                pass  # Redis failure must never block login
+            await self._cache.delete(lock_key)
 
             # 6. issue tokens — TokenService handles all storage internally
             access_token = self._token_service.create_access_token(
@@ -92,7 +90,7 @@ class LoginUseCase:
                 actor_roles=user.get_role_names(),
                 action=ActionType.AUTH_LOGIN,
                 resource="auth",
-                request_id=dto.ip_address,
+                request_id=dto.request_id,
                 ip_address=dto.ip_address,
                 user_agent=dto.user_agent,
                 after={"status": "success"},
@@ -108,17 +106,12 @@ class LoginUseCase:
     # ── private helpers ────────────────────────────────────────────────────
 
     async def _check_brute_force(self, lock_key: str) -> None:
-        try:
-            attempts = await self._redis.get(lock_key)
-            if attempts and int(attempts) >= self.MAX_ATTEMPTS:
-                raise PermissionError(
-                    "Too many failed login attempts. "
-                    "Account locked for 15 minutes."
-                )
-        except PermissionError:
-            raise
-        except Exception:
-            pass  # Redis down → degrade gracefully, allow login
+        raw = await self._cache.get(lock_key)
+        if raw and int(raw) >= self.MAX_ATTEMPTS:
+            raise PermissionError(
+                "Too many failed login attempts. "
+                "Account locked for 15 minutes."
+            )
 
     async def _record_failed_attempt(
         self,
@@ -132,11 +125,8 @@ class LoginUseCase:
     ) -> None:
         import uuid
 
-        try:
-            await self._redis.incr(lock_key)
-            await self._redis.expire(lock_key, self.LOCKOUT_SECONDS)
-        except Exception:
-            pass
+        await self._cache.incr(lock_key)
+        await self._cache.expire(lock_key, self.LOCKOUT_SECONDS)
 
         audit = AuditLog.create_failure(
             actor_id=actor_id or uuid.uuid4(),
@@ -144,7 +134,7 @@ class LoginUseCase:
             actor_roles=actor_roles or [],
             action=ActionType.AUTH_LOGIN_FAILED,
             resource="auth",
-            request_id=dto.ip_address,
+            request_id=dto.request_id,
             ip_address=dto.ip_address,
             user_agent=dto.user_agent,
             failure_reason=reason,

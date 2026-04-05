@@ -15,6 +15,7 @@ class LoginDTO:
     password: str
     ip_address: str
     user_agent: str
+    request_id: str = ""
 
 
 @dataclass
@@ -29,6 +30,7 @@ class RefreshDTO:
     refresh_token: str
     ip_address: str
     user_agent: str
+    request_id: str = ""
 
 
 @dataclass

@@ -7,13 +7,13 @@ from app.domain.repositories.uow import AbstractUnitOfWork
 from app.domain.value_objects.money import Money
 from app.domain.enums.action_type import ActionType
 from app.application.use_cases.records.dtos import UpdateRecordDTO
+from app.core.cache_service import AbstractCacheService
 
 
 class UpdateRecordUseCase:
     """
     Update an existing financial record.
-    - Analysts can only update their own records
-    - Admins can update any record
+    - Only actors with records:update can edit others' records
     - Returns diff from entity.update() directly into audit
     - Invalidates dashboard cache
     """
@@ -21,10 +21,10 @@ class UpdateRecordUseCase:
     def __init__(
         self,
         uow: AbstractUnitOfWork,
-        redis,
+        cache: AbstractCacheService,
     ) -> None:
         self._uow = uow
-        self._redis = redis
+        self._cache = cache
 
     async def execute(
         self,
@@ -39,8 +39,8 @@ class UpdateRecordUseCase:
             if not record or record.is_deleted:
                 raise ValueError(f"Record {dto.record_id} not found")
 
-            # ownership check for analysts
-            if not actor.has_permission("users:read") and not record.belongs_to(actor.id):
+            # ownership check — only actors with records:update can edit others' records
+            if not actor.has_permission("records:update") and not record.belongs_to(actor.id):
                 raise PermissionError("You can only update your own records")
 
             # validate new category if provided
@@ -83,14 +83,8 @@ class UpdateRecordUseCase:
         return record
 
     async def _invalidate_cache(self, user_id: str) -> None:
-        try:
-            keys = [
-                f"dashboard:summary:{user_id}",
-                f"dashboard:categories:{user_id}",
-                f"dashboard:trends:{user_id}",
-                "dashboard:summary:global",
-                "dashboard:categories:global",
-            ]
-            await self._redis.delete(*keys)
-        except Exception:
-            pass
+        user_keys = await self._cache.keys(f"dashboard:*:{user_id}:*")
+        global_keys = await self._cache.keys("dashboard:*:global:*")
+        all_keys = user_keys + global_keys
+        if all_keys:
+            await self._cache.delete(*all_keys)
