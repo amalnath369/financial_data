@@ -72,18 +72,20 @@ class AbstractTokenService(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def decode_access_token(self, raw_token: str) -> dict:
+    async def decode_access_token(self, raw_token: str) -> dict:
         """
         Decode and validate an access token.
         Raises ValueError if invalid or expired.
-        Raises PermissionError if JTI is blacklisted.
+        Raises PermissionError if JTI is blacklisted in cache.
+        Must be async — blacklist check requires a cache round-trip.
         """
         raise NotImplementedError
 
     @abstractmethod
     def decode_refresh_token(self, raw_token: str) -> dict:
         """
-        Decode and validate a refresh token.
+        Decode and validate a refresh token signature and expiry only.
         Raises ValueError if invalid or expired.
+        Revocation is checked inside rotate_refresh_token via DB lookup.
         """
         raise NotImplementedError
