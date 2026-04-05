@@ -1,5 +1,6 @@
 from __future__ import annotations
 import re
+import hashlib
 from passlib.context import CryptContext
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -9,20 +10,26 @@ class Password:
     """
     Value object representing a hashed password.
     - Validates strength before hashing
+    - Uses SHA-256 normalization to bypass bcrypt 72-byte limit
     - Stores only the hash, never the raw value
     - Provides verify() for authentication
     - Immutable
     """
 
     MIN_LENGTH = 8
-    MAX_LENGTH = 128
+    MAX_LENGTH = 128  # you can increase this now safely if needed
 
     def __init__(self, raw: str) -> None:
         if not isinstance(raw, str):
             raise ValueError("Password must be a string")
 
         self._validate_strength(raw)
-        self._hashed = _pwd_context.hash(raw)
+
+        # 🔥 FIX: normalize password to fixed length (32 bytes)
+        normalized = hashlib.sha256(raw.encode()).digest()
+
+        # bcrypt hash (safe now)
+        self._hashed = _pwd_context.hash(normalized)
 
     @classmethod
     def from_hash(cls, hashed: str) -> Password:
@@ -36,7 +43,8 @@ class Password:
 
     def verify(self, raw: str) -> bool:
         """Returns True if raw matches the stored hash."""
-        return _pwd_context.verify(raw, self._hashed)
+        normalized = hashlib.sha256(raw.encode()).digest()
+        return _pwd_context.verify(normalized, self._hashed)
 
     def needs_rehash(self) -> bool:
         """Returns True if the hash algorithm is outdated and should be upgraded."""

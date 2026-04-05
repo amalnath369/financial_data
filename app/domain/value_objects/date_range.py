@@ -1,6 +1,5 @@
 from __future__ import annotations
 from datetime import date
-from typing import Iterator
 
 
 class DateRange:
@@ -75,14 +74,9 @@ class DateRange:
 
     @classmethod
     def current_month(cls) -> DateRange:
-        """Convenience factory — first to last day of current month."""
-        import calendar
+        """Convenience factory — first day of current month to today."""
         today = date.today()
-        last_day = calendar.monthrange(today.year, today.month)[1]
-        return cls(
-            date(today.year, today.month, 1),
-            date(today.year, today.month, last_day),
-        )
+        return cls(date(today.year, today.month, 1), today)
 
     @classmethod
     def current_week(cls) -> DateRange:
